@@ -98,7 +98,6 @@ export default function OrdersPage() {
         if (res.ok && result.success) {
           waSent = true
           // Opsional: langsung buka tab WhatsApp simulasi, atau cukup tampilkan toast
-          window.open(result.waUrl, '_blank')
           show('success', `Status selesai. Notifikasi WA untuk ${order.customer_name} diproses.`)
         } else {
           show('error', result.message || 'Notifikasi WA gagal diproses.')
@@ -305,6 +304,22 @@ export default function OrdersPage() {
                       <p className="flex items-center gap-2 font-medium text-teal-700">
                         <MessageCircle className="h-4 w-4" aria-hidden="true" /> Notifikasi WA terkirim
                       </p>
+                    )}
+
+                    {o.status === 'selesai' && (
+                      <a
+                        href={`https://wa.me/${o.customer_phone
+                          .replace(/\D/g, '')
+                          .replace(/^0/, '62')}?text=${encodeURIComponent(
+                          `Halo ${o.customer_name}, cucian Anda (${o.invoice_number}) di Laundry Kinclong sudah SELESAI dan siap diambil. Terima kasih!`
+                        )}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100"
+                      >
+                        <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                        Kirim WA Sekarang
+                      </a>
                     )}
                   </div>
 

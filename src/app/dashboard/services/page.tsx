@@ -52,7 +52,7 @@ const emptyForm: FormState = {
 }
 
 const inputClass = (hasError: boolean) =>
-  `min-h-11 w-full rounded-xl border bg-white px-3 py-2.5 text-base outline-none transition-colors duration-200 focus:ring-2 motion-reduce:transition-none ${
+  `min-h-11 w-full rounded-xl border bg-white px-3 py-2.5 text-base text-slate-900 placeholder:text-slate-400 outline-none transition-colors duration-200 focus:ring-2 motion-reduce:transition-none ${
     hasError
       ? 'border-red-400 focus:border-red-500 focus:ring-red-100'
       : 'border-slate-200 focus:border-teal-500 focus:ring-teal-100'
