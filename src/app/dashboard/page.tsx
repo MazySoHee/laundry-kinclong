@@ -19,6 +19,7 @@ import {
   ChevronRight,
   AlertCircle,
   RefreshCw,
+  Sliders,
 } from 'lucide-react'
 
 type Order = {
@@ -254,7 +255,7 @@ export default function DashboardPage() {
             </section>
 
             {/* Aksi */}
-            <section aria-label="Aksi" className="grid gap-4 sm:grid-cols-2">
+            <section aria-label="Aksi" className="grid gap-4 sm:grid-cols-3">
               <Link
                 href="/dashboard/services"
                 className="flex min-h-16 cursor-pointer items-center justify-between rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition-colors duration-200 hover:border-teal-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 motion-reduce:transition-none"
@@ -266,6 +267,22 @@ export default function DashboardPage() {
                   <div>
                     <p className="font-semibold text-slate-800">Kelola Layanan & Harga</p>
                     <p className="text-sm text-slate-600">Tambah, edit, atau hapus layanan</p>
+                  </div>
+                </div>
+                <ChevronRight className="h-5 w-5 text-slate-400" aria-hidden="true" />
+              </Link>
+
+              <Link
+                href="/dashboard/settings"
+                className="flex min-h-16 cursor-pointer items-center justify-between rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition-colors duration-200 hover:border-teal-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 motion-reduce:transition-none"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-50 text-cyan-600">
+                    <Sliders className="h-5 w-5" aria-hidden="true" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-800">Kapasitas Operasional</p>
+                    <p className="text-sm text-slate-600">Atur batas harian & antrean</p>
                   </div>
                 </div>
                 <ChevronRight className="h-5 w-5 text-slate-400" aria-hidden="true" />

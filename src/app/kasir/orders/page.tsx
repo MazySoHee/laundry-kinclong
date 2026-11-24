@@ -6,18 +6,25 @@ import { createClient } from '@/lib/supabase'
 import AppHeader, { headerButtonClass } from '@/components/AppHeader'
 import { Toast, useToast } from '@/components/Toast'
 import { STATUS_CONFIG, STATUS_LIST, rupiah, type Status } from '@/lib/ui'
+import { formatDateTimeID, type OrderItemData } from '@/lib/laundry-utils'
 import {
   ArrowLeft,
   ClipboardList,
   Search,
   Phone,
   Calendar,
+  CalendarClock,
   Loader2,
-  MessageCircle,
   ListFilter,
   Inbox,
   AlertCircle,
   RefreshCw,
+  Eye,
+  X,
+  CreditCard,
+  FileText,
+  CheckCircle2,
+  MessageCircle,
 } from 'lucide-react'
 
 type Order = {
@@ -25,10 +32,14 @@ type Order = {
   invoice_number: string
   customer_name: string
   customer_phone: string
-  items: unknown
+  items: OrderItemData[] | unknown
   total_price: number
   status: Status
-  wa_sent: boolean
+  payment_status?: 'lunas' | 'belum_lunas' | string | null
+  estimated_completion_at?: string | null
+  completed_at?: string | null
+  picked_up_at?: string | null
+  notes?: string | null
   created_at: string
 }
 
@@ -38,6 +49,20 @@ const chipClass = (active: boolean) =>
       ? 'border-teal-600 bg-teal-600 text-white'
       : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
   }`
+
+function getServiceCategories(items: unknown): string {
+  if (!Array.isArray(items) || items.length === 0) return '-'
+  const cats = new Set<string>()
+  for (const raw of items as OrderItemData[]) {
+    const c = (raw.category ?? '').toLowerCase()
+    if (c === 'kiloan' || (raw.unit ?? '').toLowerCase() === 'kg') {
+      cats.add('Laundry Kiloan')
+    } else {
+      cats.add('Laundry Satuan')
+    }
+  }
+  return Array.from(cats).join(', ')
+}
 
 export default function OrdersPage() {
   const supabase = useMemo(() => createClient(), [])
@@ -49,6 +74,7 @@ export default function OrdersPage() {
   const [filter, setFilter] = useState<Status | 'semua'>('semua')
   const [search, setSearch] = useState('')
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
 
   const fetchOrders = useCallback(async () => {
     const { data, error } = await supabase
@@ -59,7 +85,9 @@ export default function OrdersPage() {
     if (error) {
       setLoadError(true)
     } else {
-      setOrders((data as Order[]) ?? [])
+      const list = (data as Order[]) ?? []
+      setOrders(list)
+      setSelectedOrder((prev) => (prev ? list.find((o) => o.id === prev.id) ?? null : null))
       setLoadError(false)
     }
     setLoading(false)
@@ -78,12 +106,13 @@ export default function OrdersPage() {
     if (newStatus === order.status) return
     setUpdatingId(order.id)
 
-    let waSent = order.wa_sent
+    const nowIso = new Date().toISOString()
+    const updatePayload: Record<string, string> = { status: newStatus }
 
-    // 1. Jika status diubah ke 'selesai', panggil API WA dulu dengan nama field yang benar
     if (newStatus === 'selesai') {
+      updatePayload.completed_at = nowIso
       try {
-        const res = await fetch('/api/send-wa', {
+        await fetch('/api/send-wa', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -92,26 +121,19 @@ export default function OrdersPage() {
             invoiceNumber: order.invoice_number,
           }),
         })
-
-        const result = await res.json()
-
-        if (res.ok && result.success) {
-          waSent = true
-          // Opsional: langsung buka tab WhatsApp simulasi, atau cukup tampilkan toast
-          show('success', `Status selesai. Notifikasi WA untuk ${order.customer_name} diproses.`)
-        } else {
-          show('error', result.message || 'Notifikasi WA gagal diproses.')
-        }
       } catch (err) {
         console.error('Gagal memanggil /api/send-wa', err)
-        show('error', 'Status diubah, tetapi notifikasi WA gagal dikirim.')
+      }
+    } else if (newStatus === 'diambil') {
+      updatePayload.picked_up_at = nowIso
+      if (!order.completed_at) {
+        updatePayload.completed_at = nowIso
       }
     }
 
-    // 2. Update status sekaligus wa_sent ke Supabase
     const { error } = await supabase
       .from('orders')
-      .update({ status: newStatus, wa_sent: waSent })
+      .update(updatePayload)
       .eq('id', order.id)
 
     if (error) {
@@ -120,10 +142,27 @@ export default function OrdersPage() {
       return
     }
 
-    if (newStatus !== 'selesai') {
-      show('success', `Status diubah ke ${STATUS_CONFIG[newStatus].label}.`)
+    show('success', `Status diubah ke ${STATUS_CONFIG[newStatus].label}.`)
+    await fetchOrders()
+    setUpdatingId(null)
+  }
+
+  async function togglePaymentStatus(order: Order) {
+    const nextStatus = order.payment_status === 'lunas' ? 'belum_lunas' : 'lunas'
+    setUpdatingId(order.id)
+
+    const { error } = await supabase
+      .from('orders')
+      .update({ payment_status: nextStatus })
+      .eq('id', order.id)
+
+    if (error) {
+      show('error', 'Gagal mengubah status pembayaran.')
+      setUpdatingId(null)
+      return
     }
 
+    show('success', `Status pembayaran diubah ke ${nextStatus === 'lunas' ? 'Lunas' : 'Belum Lunas'}.`)
     await fetchOrders()
     setUpdatingId(null)
   }
@@ -150,7 +189,7 @@ export default function OrdersPage() {
     <div className="min-h-dvh bg-slate-50">
       <AppHeader
         title="Daftar Cucian"
-        subtitle="Kelola status order pelanggan"
+        subtitle="Kelola status & detail order pelanggan"
         icon={ClipboardList}
         action={
           <Link href="/kasir" className={headerButtonClass}>
@@ -207,15 +246,11 @@ export default function OrdersPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Cari nama / no. invoice"
-                className="min-h-11 w-full rounded-xl border border-slate-200 py-2 pl-10 pr-3 text-base outline-none transition-colors duration-200 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 motion-reduce:transition-none"
+                className="min-h-11 w-full rounded-xl border border-slate-200 bg-white py-2 pl-10 pr-3 text-base text-slate-900 placeholder:text-slate-400 outline-none transition-colors duration-200 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 motion-reduce:transition-none"
               />
             </div>
           </div>
         </section>
-
-        <p className="sr-only" aria-live="polite">
-          {visible.length} cucian ditampilkan
-        </p>
 
         {/* Konten */}
         {loading ? (
@@ -236,7 +271,7 @@ export default function OrdersPage() {
             <p className="font-medium text-red-800">Data cucian gagal dimuat.</p>
             <button
               onClick={retry}
-              className="mt-4 inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold text-red-700 shadow-sm ring-1 ring-red-200 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+              className="mt-4 inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold text-red-700 shadow-sm ring-1 ring-red-200 hover:bg-red-50"
             >
               <RefreshCw className="h-4 w-4" aria-hidden="true" /> Coba lagi
             </button>
@@ -258,6 +293,7 @@ export default function OrdersPage() {
               const Icon = cfg.icon
               const itemCount = Array.isArray(o.items) ? o.items.length : 0
               const busy = updatingId === o.id
+              const isPaid = (o.payment_status ?? 'lunas') === 'lunas'
 
               return (
                 <article
@@ -293,18 +329,27 @@ export default function OrdersPage() {
                     </p>
                     <p className="flex items-center gap-2">
                       <Calendar className="h-4 w-4 text-slate-400" aria-hidden="true" />
-                      {new Date(o.created_at).toLocaleDateString('id-ID', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
+                      Masuk: {formatDateTimeID(o.created_at)}
                       {itemCount > 0 && <span>· {itemCount} item</span>}
                     </p>
-                    {o.wa_sent && (
-                      <p className="flex items-center gap-2 font-medium text-teal-700">
-                        <MessageCircle className="h-4 w-4" aria-hidden="true" /> Notifikasi WA terkirim
+                    {o.estimated_completion_at && (
+                      <p className="flex items-center gap-2 text-teal-700">
+                        <CalendarClock className="h-4 w-4 text-teal-600" aria-hidden="true" />
+                        Est. selesai: {formatDateTimeID(o.estimated_completion_at)}
                       </p>
                     )}
+                    <p className="flex items-center gap-2">
+                      <CreditCard className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                      <span
+                        className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
+                          isPaid
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : 'bg-amber-50 text-amber-700'
+                        }`}
+                      >
+                        {isPaid ? 'Lunas' : 'Belum Lunas'}
+                      </span>
+                    </p>
 
                     {o.status === 'selesai' && (
                       <a
@@ -323,11 +368,20 @@ export default function OrdersPage() {
                     )}
                   </div>
 
-                  <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4">
                     <p className="text-lg font-bold tabular-nums text-slate-800">
                       {rupiah(o.total_price)}
                     </p>
                     <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOrder(o)}
+                        className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                      >
+                        <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                        Detail
+                      </button>
+
                       {busy && (
                         <Loader2 className="h-4 w-4 animate-spin text-teal-600" aria-hidden="true" />
                       )}
@@ -339,7 +393,7 @@ export default function OrdersPage() {
                         value={o.status}
                         disabled={busy}
                         onChange={(e) => updateStatus(o, e.target.value as Status)}
-                        className="min-h-11 cursor-pointer rounded-xl border border-slate-200 bg-white px-3 text-base font-medium text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="min-h-10 cursor-pointer rounded-xl border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {STATUS_LIST.map((s) => (
                           <option key={s} value={s}>
@@ -355,6 +409,185 @@ export default function OrdersPage() {
           </div>
         )}
       </main>
+
+      {/* Modal Detail Pemesanan Lengkap */}
+      {selectedOrder && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="detail-modal-title"
+        >
+          <div className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
+              <div>
+                <h2 id="detail-modal-title" className="text-lg font-bold text-slate-900">
+                  Detail Pemesanan
+                </h2>
+                <p className="text-sm font-semibold text-teal-700">{selectedOrder.invoice_number}</p>
+                <p className="text-xs text-slate-400">ID: {selectedOrder.id}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedOrder(null)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Tutup detail"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5 rounded-xl bg-slate-50 p-3.5 text-sm">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Data Pelanggan
+                </p>
+                <p className="text-slate-800">
+                  <strong>Nama:</strong> {selectedOrder.customer_name}
+                </p>
+                <p className="text-slate-800">
+                  <strong>WhatsApp:</strong> {selectedOrder.customer_phone}
+                </p>
+                <p className="text-slate-800">
+                  <strong>Jenis Layanan:</strong> {getServiceCategories(selectedOrder.items)}
+                </p>
+              </div>
+
+              <div className="space-y-1.5 rounded-xl bg-slate-50 p-3.5 text-sm">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Status & Pembayaran
+                </p>
+                <p className="text-slate-800">
+                  <strong>Status Pengerjaan:</strong> {STATUS_CONFIG[selectedOrder.status].label}
+                </p>
+                <div className="flex items-center gap-2 text-slate-800">
+                  <strong>Pembayaran:</strong>
+                  <span
+                    className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
+                      (selectedOrder.payment_status ?? 'lunas') === 'lunas'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}
+                  >
+                    {(selectedOrder.payment_status ?? 'lunas') === 'lunas' ? 'Lunas' : 'Belum Lunas'}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={updatingId === selectedOrder.id}
+                    onClick={() => togglePaymentStatus(selectedOrder)}
+                    className="ml-auto inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-teal-700 hover:bg-teal-50"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Ubah
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Jadwal & Tracking Waktu */}
+            <div className="mt-4 grid gap-2 rounded-xl border border-slate-200/80 p-3.5 text-xs sm:grid-cols-2">
+              <div>
+                <span className="text-slate-500">Tanggal Masuk:</span>
+                <p className="font-semibold text-slate-800">{formatDateTimeID(selectedOrder.created_at)}</p>
+              </div>
+              <div>
+                <span className="text-slate-500">Estimasi Selesai:</span>
+                <p className="font-semibold text-teal-700">
+                  {formatDateTimeID(selectedOrder.estimated_completion_at)}
+                </p>
+              </div>
+              <div>
+                <span className="text-slate-500">Tanggal Selesai Aktual:</span>
+                <p className="font-semibold text-slate-800">
+                  {formatDateTimeID(selectedOrder.completed_at)}
+                </p>
+              </div>
+              <div>
+                <span className="text-slate-500">Tanggal Pengambilan:</span>
+                <p className="font-semibold text-slate-800">
+                  {formatDateTimeID(selectedOrder.picked_up_at)}
+                </p>
+              </div>
+            </div>
+
+            {/* Daftar Item Cucian */}
+            <div className="mt-4">
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Daftar Item Cucian
+              </h3>
+              <div className="overflow-x-auto rounded-xl border border-slate-200/80">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 text-xs text-slate-600">
+                    <tr>
+                      <th className="px-3 py-2">Layanan</th>
+                      <th className="px-3 py-2">Harga</th>
+                      <th className="px-3 py-2">Qty / Berat</th>
+                      <th className="px-3 py-2 text-right">Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {Array.isArray(selectedOrder.items) && selectedOrder.items.length > 0 ? (
+                      (selectedOrder.items as OrderItemData[]).map((it, idx) => (
+                        <tr key={idx}>
+                          <td className="px-3 py-2">
+                            <p className="font-medium text-slate-800">{it.name}</p>
+                            {it.category && (
+                              <p className="text-xs capitalize text-slate-500">{it.category}</p>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 tabular-nums text-slate-600">
+                            {rupiah(it.price)} / {it.unit}
+                          </td>
+                          <td className="px-3 py-2 tabular-nums text-slate-700">
+                            {it.qty} {it.unit}
+                          </td>
+                          <td className="px-3 py-2 text-right font-semibold tabular-nums text-slate-800">
+                            {rupiah(it.subtotal)}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={4} className="px-3 py-4 text-center text-xs text-slate-500">
+                          Rincian item tidak tersedia.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                  <tfoot className="border-t border-slate-200 bg-slate-50 font-bold text-slate-900">
+                    <tr>
+                      <td colSpan={3} className="px-3 py-2.5 text-right">
+                        Total Pembayaran
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {rupiah(selectedOrder.total_price)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            {/* Catatan Tambahan */}
+            <div className="mt-4 rounded-xl bg-slate-50 p-3.5 text-sm">
+              <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <FileText className="h-3.5 w-3.5" /> Catatan Tambahan
+              </p>
+              <p className="text-slate-700">{selectedOrder.notes || 'Tidak ada catatan tambahan.'}</p>
+            </div>
+
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedOrder(null)}
+                className="min-h-11 cursor-pointer rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Toast toast={toast} onClose={hide} />
     </div>

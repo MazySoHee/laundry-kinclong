@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase'
 import AppHeader, { headerButtonClass } from '@/components/AppHeader'
+import ServiceIcon from '@/components/ServiceIcon'
 import { Toast, useToast } from '@/components/Toast'
 import { rupiah } from '@/lib/ui'
 import {
@@ -13,8 +14,6 @@ import {
   Trash2,
   X,
   Save,
-  Scale,
-  Shirt,
   Clock,
   Loader2,
   Tags,
@@ -351,7 +350,6 @@ export default function ServicesPage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {visible.map((s) => {
               const isKiloan = s.category === 'kiloan'
-              const Icon = isKiloan ? Scale : Shirt
               return (
                 <article
                   key={s.id}
@@ -364,7 +362,7 @@ export default function ServicesPage() {
                           isKiloan ? 'bg-cyan-50 text-cyan-600' : 'bg-amber-50 text-amber-600'
                         }`}
                       >
-                        <Icon className="h-5 w-5" aria-hidden="true" />
+                        <ServiceIcon name={s.name} category={s.category} className="h-5 w-5" />
                       </div>
                       <div className="min-w-0">
                         <h2 className="truncate font-semibold text-slate-800">{s.name}</h2>
@@ -375,7 +373,7 @@ export default function ServicesPage() {
                               : 'border-amber-200 bg-amber-50 text-amber-700'
                           }`}
                         >
-                          <Icon className="h-3 w-3" aria-hidden="true" />
+                          <ServiceIcon name={s.name} category={s.category} className="h-3 w-3" />
                           {s.category}
                         </span>
                       </div>
