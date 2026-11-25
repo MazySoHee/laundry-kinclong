@@ -13,9 +13,15 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://laundry-kinclong.vercel.app/login'), // <-- Ganti dengan link Vercel kamu
   title: 'Laundry Kinclong - Sistem Kasir & Manajemen',
   description: 'Aplikasi manajemen laundry digital untuk kasir dan pemilik',
-};
+  openGraph: {
+    title: 'Laundry Kinclong - Sistem Kasir & Manajemen',
+    description: 'Aplikasi manajemen laundry digital untuk kasir dan pemilik',
+    type: 'website',
+  },
+}
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
